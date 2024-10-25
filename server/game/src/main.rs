@@ -22,17 +22,11 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
-use bridge::{CentralBridge, CentralBridgeError};
 use globed_shared::{log::Log, *};
 use reqwest::StatusCode;
-use state::ServerState;
-use tokio::{
-    fs::File,
-    io::AsyncReadExt,
-    net::{TcpListener, UdpSocket},
-};
+use tokio::{fs::File, io::AsyncReadExt};
 
-use server::GameServer;
+pub use globed_game_server::{abort_misconfig, CentralBridge, CentralBridgeError, ServerState, StartupConfiguration};
 
 pub mod bridge;
 pub mod client;
@@ -42,24 +36,6 @@ pub mod server;
 pub mod state;
 pub mod util;
 use globed_shared::webhook;
-
-struct StartupConfiguration {
-    bind_address: SocketAddr,
-    central_data: Option<(String, String)>,
-}
-
-fn abort_misconfig() -> ! {
-    error!("aborting launch due to misconfiguration.");
-    std::process::exit(1);
-}
-
-fn censor_key(key: &str, keep_first_n_chars: usize) -> String {
-    if key.len() <= keep_first_n_chars {
-        return "*".repeat(key.len());
-    }
-
-    format!("{}{}", &key[..keep_first_n_chars], "*".repeat(key.len() - keep_first_n_chars))
-}
 
 fn parse_configuration() -> StartupConfiguration {
     let mut args = std::env::args();
@@ -211,15 +187,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         content.lines().map(|x| x.to_owned()).collect_into(&mut filter_words);
     }
 
-    let filter_words_count = filter_words.len();
-
     let state = ServerState::new(&filter_words);
     let bridge = if standalone {
         warn!("Starting in standalone mode, authentication is disabled");
         warn!("Note: use Direct Connection option in-game to connect, Add Server cannot be used.");
         CentralBridge::new("", "")
     } else {
-        let (central_url, central_pw) = startup_config.central_data.unwrap();
+        let (central_url, central_pw) = startup_config.central_data.clone().unwrap();
 
         // check if the user put a wrong url
         if central_url.contains("http://0.0.0.0") || central_url.contains("https://0.0.0.0") {
@@ -290,73 +264,5 @@ async fn main() -> Result<(), Box<dyn Error>> {
         bridge
     };
 
-    {
-        // output useful information
-
-        let gsbd = bridge.central_conf.lock();
-
-        debug!("Configuration:");
-        debug!("* TPS: {}", gsbd.tps);
-        debug!("* Token expiry: {} seconds", gsbd.token_expiry);
-        debug!("* Maintenance: {}", if gsbd.maintenance { "yes" } else { "no" });
-
-        debug!("* Token secret key: '{}'", censor_key(&gsbd.secret_key2, 4));
-
-        if standalone {
-            debug!("* Admin key: '{}'", gsbd.admin_key);
-        } else {
-            // print first 4 chars, rest is censored
-            debug!("* Admin key: '{}'", censor_key(&gsbd.admin_key, 4));
-        }
-
-        if gsbd.chat_burst_limit == 0 || gsbd.chat_burst_interval == 0 {
-            debug!("* Text chat ratelimit: disabled");
-        } else {
-            debug!(
-                "* Text chat ratelimit: {} messages per {}ms",
-                gsbd.chat_burst_limit, gsbd.chat_burst_interval
-            );
-        }
-
-        if filter_words_count != 0 {
-            debug!("Filtered words: {filter_words_count}");
-        }
-
-        state.role_manager.refresh_from(&gsbd);
-    }
-
-    // bind the UDP socket
-
-    let udp_socket = match UdpSocket::bind(&startup_config.bind_address).await {
-        Ok(x) => x,
-        Err(err) => {
-            error!("Failed to bind the UDP socket with address {}: {err}", startup_config.bind_address);
-            if startup_config.bind_address.port() < 1024 {
-                warn!("hint: ports below 1024 are commonly privileged and you can't use them as a regular user");
-                warn!("hint: pick a higher port number or leave it out completely to use the default port number ({DEFAULT_GAME_SERVER_PORT})");
-            }
-            abort_misconfig();
-        }
-    };
-
-    // bind the TCP socket
-
-    let tcp_socket = match TcpListener::bind(&startup_config.bind_address).await {
-        Ok(x) => x,
-        Err(err) => {
-            error!("Failed to bind the TCP socket with address {}: {err}", startup_config.bind_address);
-
-            abort_misconfig();
-        }
-    };
-
-    // create and run the server
-
-    let server = GameServer::new(tcp_socket, udp_socket, state, bridge, standalone);
-    let server = Box::leak(Box::new(server));
-
-    Box::pin(server.run()).await;
-
-    #[allow(unreachable_code)] // i love rust
-    Ok(())
+    globed_game_server::gs_entry_point(startup_config, state, bridge, standalone, true).await
 }

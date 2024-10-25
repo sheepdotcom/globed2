@@ -17,11 +17,138 @@ pub mod managers;
 pub mod server;
 pub mod state;
 pub mod util;
-use globed_shared::webhook;
+use std::{error::Error, net::SocketAddr};
+
+pub use bridge::{CentralBridge, CentralBridgeError};
+use globed_shared::{debug, error, warn, webhook, DEFAULT_GAME_SERVER_PORT};
 
 // #[cfg(feature = "use_tokio_tracing")]
 // use tokio_tracing as tokio;
 
+use server::GameServer;
+pub use state::ServerState;
 // #[cfg(not(feature = "use_tokio_tracing"))]
 #[allow(clippy::single_component_path_imports)]
 use tokio;
+use tokio::net::{TcpListener, UdpSocket};
+
+pub struct StartupConfiguration {
+    pub bind_address: SocketAddr,
+    pub central_data: Option<(String, String)>,
+}
+
+pub fn abort_misconfig() -> ! {
+    error!("aborting launch due to misconfiguration.");
+    std::process::exit(1);
+}
+
+fn censor_key(key: &str, keep_first_n_chars: usize) -> String {
+    if key.len() <= keep_first_n_chars {
+        return "*".repeat(key.len());
+    }
+
+    format!("{}{}", &key[..keep_first_n_chars], "*".repeat(key.len() - keep_first_n_chars))
+}
+
+pub async fn gs_entry_point(
+    startup_config: StartupConfiguration,
+    state: ServerState,
+    bridge: CentralBridge,
+    standalone: bool,
+    is_dedicated: bool,
+) -> Result<(), Box<dyn Error>> {
+    {
+        // output useful information
+
+        let gsbd = bridge.central_conf.lock();
+
+        debug!("Configuration:");
+        debug!("* TPS: {}", gsbd.tps);
+        debug!("* Token expiry: {} seconds", gsbd.token_expiry);
+        debug!("* Maintenance: {}", if gsbd.maintenance { "yes" } else { "no" });
+
+        debug!("* Token secret key: '{}'", censor_key(&gsbd.secret_key2, 4));
+
+        if standalone {
+            debug!("* Admin key: '{}'", gsbd.admin_key);
+        } else {
+            // print first 4 chars, rest is censored
+            debug!("* Admin key: '{}'", censor_key(&gsbd.admin_key, 4));
+        }
+
+        if gsbd.chat_burst_limit == 0 || gsbd.chat_burst_interval == 0 {
+            debug!("* Text chat ratelimit: disabled");
+        } else {
+            debug!(
+                "* Text chat ratelimit: {} messages per {}ms",
+                gsbd.chat_burst_limit, gsbd.chat_burst_interval
+            );
+        }
+
+        state.role_manager.refresh_from(&gsbd);
+    }
+
+    // bind the UDP socket
+
+    let udp_socket = match UdpSocket::bind(&startup_config.bind_address).await {
+        Ok(x) => x,
+        Err(err) => {
+            error!("Failed to bind the UDP socket with address {}: {err}", startup_config.bind_address);
+            if startup_config.bind_address.port() < 1024 {
+                warn!("hint: ports below 1024 are commonly privileged and you can't use them as a regular user");
+                warn!("hint: pick a higher port number or leave it out completely to use the default port number ({DEFAULT_GAME_SERVER_PORT})");
+            }
+
+            if is_dedicated {
+                abort_misconfig();
+            } else {
+                return Err(Box::new(err));
+            }
+        }
+    };
+
+    // bind the TCP socket
+
+    let tcp_socket = match TcpListener::bind(&startup_config.bind_address).await {
+        Ok(x) => x,
+        Err(err) => {
+            error!("Failed to bind the TCP socket with address {}: {err}", startup_config.bind_address);
+
+            if is_dedicated {
+                abort_misconfig();
+            } else {
+                return Err(Box::new(err));
+            }
+        }
+    };
+
+    // create and run the server
+
+    let server = GameServer::new(tcp_socket, udp_socket, state, bridge, standalone);
+    let server = Box::leak(Box::new(server));
+
+    Box::pin(server.run()).await;
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+pub extern "C" fn gs_static_entry_point() -> bool {
+    let rt = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+
+    let startup_config = StartupConfiguration {
+        bind_address: format!("0.0.0.0:{}", DEFAULT_GAME_SERVER_PORT).parse().unwrap(),
+        central_data: None,
+    };
+
+    let state = ServerState::new(&[]);
+    let bridge = CentralBridge::new("", "");
+
+    match rt.block_on(gs_entry_point(startup_config, state, bridge, true, false)) {
+        Ok(()) => unreachable!("server should never exit"),
+        Err(err) => {
+            error!("server exited with error: {err}");
+            false
+        }
+    }
+}
