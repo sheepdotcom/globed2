@@ -117,9 +117,9 @@ impl log::Log for StaticLogger {
     }
 
     fn log(&self, record: &Record) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
+        // if !self.enabled(record.metadata()) {
+        //     return;
+        // }
 
         if let Some(cb) = &self.callback {
             let message = format!("{}", record.args());
@@ -133,6 +133,7 @@ impl log::Log for StaticLogger {
 
             // safety: we trust that the caller supplied a valid callback
             unsafe {
+                let message = format!("[{}] {}", record.metadata().target(), message);
                 cb(level, message.as_ptr(), message.len());
             }
         }
