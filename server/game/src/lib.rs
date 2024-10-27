@@ -56,7 +56,7 @@ pub async fn gs_entry_point(
     bridge: CentralBridge,
     standalone: bool,
     ffi_channel: Option<FfiChannelPair>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<&'static GameServer, Box<dyn Error>> {
     let is_dedicated = ffi_channel.is_none();
 
     {
@@ -131,5 +131,5 @@ pub async fn gs_entry_point(
 
     Box::pin(server.run()).await;
 
-    Ok(())
+    Ok(server)
 }

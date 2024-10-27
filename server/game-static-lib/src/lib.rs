@@ -1,7 +1,16 @@
-use std::{sync::Arc, time::Duration};
+#![feature(box_vec_non_null)]
 
-use globed_game_server::{bridge::CentralBridge, gs_entry_point, server::FfiMessage, state::ServerState, util::TokioChannel, StartupConfiguration};
-use globed_shared::{debug, error, info, log, warn, LogLevelFilter, StaticLogger, StaticLoggerCallback, SyncMutex, DEFAULT_GAME_SERVER_PORT};
+use std::{ptr::NonNull, sync::Arc, time::Duration};
+
+use globed_game_server::{
+    bridge::CentralBridge,
+    gs_entry_point,
+    server::{FfiMessage, GameServer},
+    state::ServerState,
+    util::TokioChannel,
+    StartupConfiguration,
+};
+use globed_shared::{debug, error, log, warn, LogLevelFilter, StaticLogger, StaticLoggerCallback, SyncMutex, DEFAULT_GAME_SERVER_PORT};
 
 fn int_to_log_level(log_level: i32) -> LogLevelFilter {
     match log_level {
@@ -58,7 +67,22 @@ pub extern "C" fn globed_gsi_start_server() -> bool {
     REQUEST_DOWN_CHANNEL.lock().replace(down_rx);
 
     match rt.block_on(gs_entry_point(startup_config, state, bridge, true, Some((up, down_tx)))) {
-        Ok(()) => true,
+        Ok(gs) => {
+            // ok so. hear me out.
+            // this is DANGEROUSLY unsafe.
+            // the server is leaked through Box::leak, so it is never freed.
+            // there is no feasible way to redesign the codebase to avoid the leak.
+            // but now that the server has returned, we can assume NO server code is running now.
+            // this is a terrible practice, but it is what it is.
+
+            unsafe {
+                // construct a Box from the reference
+                let _ = Box::from_non_null(NonNull::new_unchecked(gs as *const GameServer as *mut GameServer));
+                // do nothing else, it will be dropped at the end of this scope
+            }
+
+            true
+        }
         Err(err) => {
             error!("server exited with error: {err}");
             false

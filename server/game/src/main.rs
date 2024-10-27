@@ -254,5 +254,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         bridge
     };
 
-    globed_game_server::gs_entry_point(startup_config, state, bridge, standalone, None).await
+    globed_game_server::gs_entry_point(startup_config, state, bridge, standalone, None)
+        .await
+        .map(|_| ())
 }
