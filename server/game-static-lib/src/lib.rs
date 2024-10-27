@@ -17,7 +17,8 @@ pub extern "C" fn gs_static_entry_point(log_level: i32, callback: Option<StaticL
     log::set_logger(StaticLogger::instance("game_static_lib", callback)).unwrap();
     log::set_max_level(int_to_log_level(log_level));
 
-    warn!("Starting static game server");
+    warn!("Starting static game server. Hello from Rust :)");
+    warn!("Log level = {}, callback = {:?}", log_level, callback);
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
