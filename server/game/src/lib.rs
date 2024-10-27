@@ -25,7 +25,7 @@ use globed_shared::{debug, error, warn, webhook, DEFAULT_GAME_SERVER_PORT};
 // #[cfg(feature = "use_tokio_tracing")]
 // use tokio_tracing as tokio;
 
-use server::GameServer;
+use server::{FfiChannelPair, GameServer};
 pub use state::ServerState;
 // #[cfg(not(feature = "use_tokio_tracing"))]
 #[allow(clippy::single_component_path_imports)]
@@ -55,8 +55,10 @@ pub async fn gs_entry_point(
     state: ServerState,
     bridge: CentralBridge,
     standalone: bool,
-    is_dedicated: bool,
+    ffi_channel: Option<FfiChannelPair>,
 ) -> Result<(), Box<dyn Error>> {
+    let is_dedicated = ffi_channel.is_none();
+
     {
         // output useful information
 
@@ -124,11 +126,10 @@ pub async fn gs_entry_point(
 
     // create and run the server
 
-    let server = GameServer::new(tcp_socket, udp_socket, state, bridge, standalone);
+    let server = GameServer::new(tcp_socket, udp_socket, state, bridge, standalone, ffi_channel);
     let server = Box::leak(Box::new(server));
 
     Box::pin(server.run()).await;
 
-    #[allow(unreachable_code)]
     Ok(())
 }

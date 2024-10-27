@@ -22,7 +22,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
-use globed_shared::{log::Log, *};
+use globed_shared::*;
 use reqwest::StatusCode;
 use tokio::{fs::File, io::AsyncReadExt};
 
@@ -134,16 +134,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         error!("invalid value for the log level environment varaible");
         warn!("hint: possible values are 'trace', 'debug', 'info', 'warn', 'error', and 'none'.");
         abort_misconfig();
-    }
-
-    // set the interrupt handler to flush the logfile and exit
-
-    if let Err(e) = ctrlc::set_handler(move || {
-        warn!("Interrupt signal received, terminating the server");
-        Logger::instance("globed_game_server", true).flush();
-        std::process::exit(1);
-    }) {
-        warn!("error setting up interrupt handler: {e}");
     }
 
     // setup tokio-console in debug builds
@@ -264,5 +254,5 @@ async fn main() -> Result<(), Box<dyn Error>> {
         bridge
     };
 
-    globed_game_server::gs_entry_point(startup_config, state, bridge, standalone, true).await
+    globed_game_server::gs_entry_point(startup_config, state, bridge, standalone, None).await
 }

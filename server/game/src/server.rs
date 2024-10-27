@@ -12,6 +12,7 @@ use globed_shared::{
     logger::*,
     should_ignore_error, ServerUserEntry, SyncMutex,
 };
+use log::Log;
 use rustc_hash::FxHashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -29,6 +30,7 @@ use crate::{
         self,
         net::{TcpListener, UdpSocket},
     },
+    util::TokioChannel,
 };
 
 use crate::{
@@ -64,10 +66,26 @@ pub struct GameServer {
     pub bridge: CentralBridge,
     pub standalone: bool,
     pub large_packet_buffer: SyncMutex<Box<[u8]>>,
+    pub ffi_channel: Option<FfiChannelPair>,
 }
 
+pub enum FfiMessage {
+    Shutdown,
+    PrintInfo,
+    ShutdownAck,
+}
+
+pub type FfiChannelPair = (Arc<TokioChannel<FfiMessage>>, std::sync::mpsc::Sender<FfiMessage>);
+
 impl GameServer {
-    pub fn new(tcp_socket: TcpListener, udp_socket: UdpSocket, state: ServerState, bridge: CentralBridge, standalone: bool) -> Self {
+    pub fn new(
+        tcp_socket: TcpListener,
+        udp_socket: UdpSocket,
+        state: ServerState,
+        bridge: CentralBridge,
+        standalone: bool,
+        ffi_channel: Option<FfiChannelPair>,
+    ) -> Self {
         let secret_key = SecretKey::generate(&mut OsRng);
         let public_key = secret_key.public_key();
 
@@ -83,10 +101,11 @@ impl GameServer {
             bridge,
             standalone,
             large_packet_buffer: SyncMutex::new(vec![0; LARGE_BUFFER_SIZE].into_boxed_slice()),
+            ffi_channel,
         }
     }
 
-    pub async fn run(&'static self) -> ! {
+    pub async fn run(&'static self) {
         info!(
             "Server launched on {} (version: {})",
             self.tcp_socket.local_addr().unwrap(),
@@ -154,16 +173,36 @@ impl GameServer {
         });
 
         loop {
-            match self.accept_connection().await {
-                Ok(()) => {}
-                Err(err) => {
-                    let err_string = err.to_string();
-                    error!("Failed to accept a connection: {err_string}");
-                    // if it's a fd limit issue, sleep until things get better
-                    if err_string.contains("Too many open files") {
-                        warn!("fd limit exceeded, sleeping for 500ms. server cannot accept any more clients unless the fd limit is raised");
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::select! {
+                x = self.accept_connection() => match x {
+                    Ok(()) => {}
+                    Err(err) => {
+                        let err_string = err.to_string();
+                        error!("Failed to accept a connection: {err_string}");
+                        // if it's a fd limit issue, sleep until things get better
+                        if err_string.contains("Too many open files") {
+                            warn!("fd limit exceeded, sleeping for 500ms. server cannot accept any more clients unless the fd limit is raised");
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
                     }
+                },
+
+                res = self.handle_ffi_message(), if self.ffi_channel.is_some() => match res {
+                    Ok(true) => {
+                        break;
+                    }
+
+                    Ok(false) => {},
+
+                    Err(e) => {
+                        error!("failed to handle FFI message: {e}");
+                    }
+                },
+
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Received SIGINT, shutting down..");
+                    let _ = self.server_cleanup().await;
+                    break;
                 }
             }
         }
@@ -182,6 +221,26 @@ impl GameServer {
         tokio::spawn(self.client_loop(socket, peer));
 
         Ok(())
+    }
+
+    async fn handle_ffi_message(&'static self) -> anyhow::Result<bool> {
+        if let Some((up, down)) = &self.ffi_channel {
+            match unsafe { up.recv().await } {
+                Ok(FfiMessage::Shutdown) => {
+                    debug!("received shutdown message from FFI, shutting down..");
+                    down.send(FfiMessage::ShutdownAck).unwrap();
+                    return Ok(true);
+                }
+
+                Ok(FfiMessage::PrintInfo) => {
+                    self.print_server_status();
+                }
+
+                _ => {}
+            }
+        }
+
+        Ok(false)
     }
 
     #[allow(clippy::manual_let_else, clippy::too_many_lines)]
@@ -423,6 +482,12 @@ impl GameServer {
         }
 
         Ok(())
+    }
+
+    async fn server_cleanup(&self) {
+        // TODO: maybe more cleanup stuff
+        // flush logger
+        Logger::instance("globed_game_server", true).flush();
     }
 
     /* various calls for other threads */
