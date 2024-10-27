@@ -7,6 +7,7 @@ use std::{
 };
 
 use colored::Colorize;
+use log::{Metadata, Record};
 use time::{format_description, OffsetDateTime};
 
 pub use log;
@@ -16,6 +17,11 @@ pub struct Logger {
     pub format_desc: Vec<format_description::FormatItem<'static>>,
     self_crate_name: &'static str,
     file_writer: Option<SyncMutex<BufWriter<File>>>,
+}
+
+// logger for when the server is statically linked and not a dedicated application
+pub struct StaticLogger {
+    self_crate_name: &'static str,
 }
 
 const TIME_FORMAT: &str = "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
@@ -45,7 +51,7 @@ impl Logger {
 }
 
 impl log::Log for Logger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
+    fn enabled(&self, metadata: &Metadata) -> bool {
         if metadata.target().starts_with(self.self_crate_name) {
             true
         } else {
@@ -53,7 +59,7 @@ impl log::Log for Logger {
         }
     }
 
-    fn log(&self, record: &log::Record) {
+    fn log(&self, record: &Record) {
         if !self.enabled(record.metadata()) {
             return;
         }
@@ -86,4 +92,43 @@ impl log::Log for Logger {
     fn flush(&self) {
         self.file_writer.as_ref().map(|w| w.lock().flush());
     }
+}
+
+impl StaticLogger {
+    #[allow(clippy::missing_panics_doc)]
+    pub fn instance(self_crate_name: &'static str) -> &'static Self {
+        static INSTANCE: OnceLock<StaticLogger> = OnceLock::new();
+        INSTANCE.get_or_init(|| Self { self_crate_name })
+    }
+}
+
+impl log::Log for StaticLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        if metadata.target().starts_with(self.self_crate_name) {
+            true
+        } else {
+            metadata.level() <= LogLevel::Warn
+        }
+    }
+
+    fn log(&self, record: &Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+
+        let (level, args) = match record.level() {
+            LogLevel::Error => (record.level().to_string().bright_red(), record.args().to_string().bright_red()),
+            LogLevel::Warn => (record.level().to_string().bright_yellow(), record.args().to_string().bright_yellow()),
+            LogLevel::Info => (record.level().to_string().cyan(), record.args().to_string().cyan()),
+            LogLevel::Debug => (record.level().to_string().white(), record.args().to_string().white()),
+            LogLevel::Trace => (record.level().to_string().normal(), record.args().to_string().normal()),
+        };
+
+        if record.level() == LogLevel::Error {
+            eprintln!("[Globed Server] [{level}] - {args}");
+        } else {
+            println!("[Globed Server] [{level}] - {args}");
+        }
+    }
+    fn flush(&self) {}
 }
