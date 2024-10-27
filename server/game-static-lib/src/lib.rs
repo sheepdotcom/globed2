@@ -30,6 +30,10 @@ pub extern "C" fn globed_gsi_init(data: &ServerEntryData) {
     log::set_logger(StaticLogger::instance("globed_game_server", data.callback)).unwrap();
     log::set_max_level(int_to_log_level(data.log_level));
 
+    std::panic::set_hook(Box::new(|info| {
+        error!("Panic occurred: {:#?}", info);
+    }));
+
     debug!("Initialized static game server components");
 }
 
