@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use globed_game_server::{bridge::CentralBridge, gs_entry_point, server::FfiMessage, state::ServerState, util::TokioChannel, StartupConfiguration};
-use globed_shared::{error, info, log, warn, LogLevelFilter, StaticLogger, StaticLoggerCallback, SyncMutex, DEFAULT_GAME_SERVER_PORT};
+use globed_shared::{debug, error, info, log, warn, LogLevelFilter, StaticLogger, StaticLoggerCallback, SyncMutex, DEFAULT_GAME_SERVER_PORT};
 
 fn int_to_log_level(log_level: i32) -> LogLevelFilter {
     match log_level {
@@ -25,13 +25,16 @@ pub struct ServerEntryData {
 }
 
 #[no_mangle]
-#[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn globed_gsi_entry(data: &ServerEntryData) -> bool {
+pub extern "C" fn globed_gsi_init(data: &ServerEntryData) {
     // we are not actually 'globed_game_server', but 99% of logs come from there, the exception being the log below
     log::set_logger(StaticLogger::instance("globed_game_server", data.callback)).unwrap();
-
     log::set_max_level(int_to_log_level(data.log_level));
 
+    debug!("Initialized static game server components");
+}
+
+#[no_mangle]
+pub extern "C" fn globed_gsi_start_server() -> bool {
     warn!("Starting static game server. Hello from Rust :)");
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
