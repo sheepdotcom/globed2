@@ -15,7 +15,9 @@ fn int_to_log_level(log_level: i32) -> LogLevelFilter {
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn gs_static_entry_point(log_level: i32, callback: Option<StaticLoggerCallback>) -> bool {
-    log::set_logger(StaticLogger::instance("game_static_lib", callback)).unwrap();
+    // we are not actually 'globed_game_server', but 99% of logs come from there, the exception being the log below
+    log::set_logger(StaticLogger::instance("globed_game_server", callback)).unwrap();
+
     log::set_max_level(int_to_log_level(log_level));
 
     warn!("Starting static game server. Hello from Rust :)");
