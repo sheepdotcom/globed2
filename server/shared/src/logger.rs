@@ -19,9 +19,14 @@ pub struct Logger {
     file_writer: Option<SyncMutex<BufWriter<File>>>,
 }
 
+// this is the callback that the static logger will use to log messages
+// arguments: log level, message, message length
+pub type StaticLoggerCallback = unsafe extern "C" fn(i32, *const u8, usize);
+
 // logger for when the server is statically linked and not a dedicated application
 pub struct StaticLogger {
     self_crate_name: &'static str,
+    callback: Option<StaticLoggerCallback>,
 }
 
 const TIME_FORMAT: &str = "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
@@ -96,9 +101,9 @@ impl log::Log for Logger {
 
 impl StaticLogger {
     #[allow(clippy::missing_panics_doc)]
-    pub fn instance(self_crate_name: &'static str) -> &'static Self {
+    pub fn instance(self_crate_name: &'static str, callback: Option<StaticLoggerCallback>) -> &'static Self {
         static INSTANCE: OnceLock<StaticLogger> = OnceLock::new();
-        INSTANCE.get_or_init(|| Self { self_crate_name })
+        INSTANCE.get_or_init(|| Self { self_crate_name, callback })
     }
 }
 
@@ -116,18 +121,20 @@ impl log::Log for StaticLogger {
             return;
         }
 
-        let (level, args) = match record.level() {
-            LogLevel::Error => (record.level().to_string().bright_red(), record.args().to_string().bright_red()),
-            LogLevel::Warn => (record.level().to_string().bright_yellow(), record.args().to_string().bright_yellow()),
-            LogLevel::Info => (record.level().to_string().cyan(), record.args().to_string().cyan()),
-            LogLevel::Debug => (record.level().to_string().white(), record.args().to_string().white()),
-            LogLevel::Trace => (record.level().to_string().normal(), record.args().to_string().normal()),
-        };
+        if let Some(cb) = &self.callback {
+            let message = format!("{}", record.args());
+            let level = match record.level() {
+                LogLevel::Error => 0,
+                LogLevel::Warn => 1,
+                LogLevel::Info => 2,
+                LogLevel::Debug => 3,
+                LogLevel::Trace => 4,
+            };
 
-        if record.level() == LogLevel::Error {
-            eprintln!("[Globed Server] [{level}] - {args}");
-        } else {
-            println!("[Globed Server] [{level}] - {args}");
+            // safety: we trust that the caller supplied a valid callback
+            unsafe {
+                cb(level, message.as_ptr(), message.len());
+            }
         }
     }
     fn flush(&self) {}

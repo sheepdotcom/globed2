@@ -1,5 +1,5 @@
 use globed_game_server::{bridge::CentralBridge, gs_entry_point, state::ServerState, StartupConfiguration};
-use globed_shared::{error, log, LogLevelFilter, StaticLogger, DEFAULT_GAME_SERVER_PORT};
+use globed_shared::{error, log, LogLevelFilter, StaticLogger, StaticLoggerCallback, DEFAULT_GAME_SERVER_PORT};
 
 fn int_to_log_level(log_level: i32) -> LogLevelFilter {
     match log_level {
@@ -13,8 +13,8 @@ fn int_to_log_level(log_level: i32) -> LogLevelFilter {
 }
 
 #[no_mangle]
-pub extern "C" fn gs_static_entry_point(log_level: i32) -> bool {
-    log::set_logger(StaticLogger::instance("globed_game_server")).unwrap();
+pub extern "C" fn gs_static_entry_point(log_level: i32, callback: Option<StaticLoggerCallback>) -> bool {
+    log::set_logger(StaticLogger::instance("game-static-lib", callback)).unwrap();
     log::set_max_level(int_to_log_level(log_level));
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
