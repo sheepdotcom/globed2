@@ -1,5 +1,5 @@
 [workspace]
-members = ["central", "esp", "game", "derive", "shared", "observer", "observer-shared"]
+members = ["central", "esp", "game", "derive", "shared", "observer", "observer-shared", "game-static-lib"]
 resolver = "2"
 
 [profile.release]

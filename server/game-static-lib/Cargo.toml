@@ -1,0 +1,12 @@
+[package]
+name = "game-static-lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+globed-game-server = { path = "../game" }
+globed-shared = { path = "../shared" }
+tokio = { version = "1.41.0", features = ["full"] }
+
+[lib]
+crate-type = ["staticlib"]
