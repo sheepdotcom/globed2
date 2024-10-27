@@ -117,9 +117,9 @@ impl log::Log for StaticLogger {
     }
 
     fn log(&self, record: &Record) {
-        // if !self.enabled(record.metadata()) {
-        //     return;
-        // }
+        if !self.enabled(record.metadata()) {
+            return;
+        }
 
         if let Some(cb) = &self.callback {
             let message = format!("{}", record.args());

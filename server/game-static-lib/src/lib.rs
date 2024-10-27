@@ -13,12 +13,15 @@ fn int_to_log_level(log_level: i32) -> LogLevelFilter {
 }
 
 #[no_mangle]
-pub extern "C" fn gs_static_entry_point(log_level: i32, callback: Option<StaticLoggerCallback>) -> bool {
-    log::set_logger(StaticLogger::instance("game_static_lib", callback)).unwrap();
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn gs_static_entry_point(log_level: i32, dll_name: *const i8, callback: Option<StaticLoggerCallback>) -> bool {
+    // construct &str from the raw pointer
+    let dll_name = unsafe { std::ffi::CStr::from_ptr(dll_name).to_str().unwrap() };
+
+    log::set_logger(StaticLogger::instance(dll_name, callback)).unwrap();
     log::set_max_level(int_to_log_level(log_level));
 
     warn!("Starting static game server. Hello from Rust :)");
-    warn!("Log level = {}, callback = {:?}", log_level, callback);
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 

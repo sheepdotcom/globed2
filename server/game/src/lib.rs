@@ -57,12 +57,10 @@ pub async fn gs_entry_point(
     standalone: bool,
     is_dedicated: bool,
 ) -> Result<(), Box<dyn Error>> {
-    warn!("got to entry point 1");
     {
         // output useful information
 
         let gsbd = bridge.central_conf.lock();
-        warn!("got to entry point 2");
 
         debug!("Configuration:");
         debug!("* TPS: {}", gsbd.tps);
@@ -90,7 +88,6 @@ pub async fn gs_entry_point(
         state.role_manager.refresh_from(&gsbd);
     }
 
-    warn!("got to entry point 3");
     // bind the UDP socket
 
     let udp_socket = match UdpSocket::bind(&startup_config.bind_address).await {
@@ -109,7 +106,6 @@ pub async fn gs_entry_point(
             }
         }
     };
-    warn!("got to entry point 4");
 
     // bind the TCP socket
 
@@ -125,7 +121,6 @@ pub async fn gs_entry_point(
             }
         }
     };
-    warn!("got to entry point 5");
 
     // create and run the server
 
