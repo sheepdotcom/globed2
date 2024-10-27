@@ -117,6 +117,18 @@ impl log::Log for StaticLogger {
     }
 
     fn log(&self, record: &Record) {
+        unsafe {
+            let msg = format!(
+                "[target = {}], [enabled = {}] {}",
+                record.metadata().target(),
+                self.enabled(record.metadata()),
+                record.args()
+            );
+
+            if let Some(cb) = &self.callback {
+                cb(4, msg.as_ptr(), msg.len());
+            }
+        }
         if !self.enabled(record.metadata()) {
             return;
         }
