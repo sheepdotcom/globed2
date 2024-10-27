@@ -3,7 +3,7 @@ use globed_shared::{error, DEFAULT_GAME_SERVER_PORT};
 
 #[no_mangle]
 pub extern "C" fn gs_static_entry_point() -> bool {
-    let rt = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
     let startup_config = StartupConfiguration {
         bind_address: format!("0.0.0.0:{}", DEFAULT_GAME_SERVER_PORT).parse().unwrap(),
