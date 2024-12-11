@@ -1339,7 +1339,10 @@ class $modify(PlayerObject) {
         if ((void*)m_gameLayer != pl || !pl) return;
 
         if (pl->m_player1 == this || pl->m_player2 == this) {
-            GLOBED_EVENT(pl, mainPlayerUpdate(this, dt));
+            PlayerObject copy = *this; // globed is such an insane mod how does this all work
+            copy.m_position = ccp(60.f, 60.f);
+
+            GLOBED_EVENT(pl, mainPlayerUpdate(&copy, dt));
         } else {
             GLOBED_EVENT(pl, onlinePlayerUpdate(this, dt));
         }
